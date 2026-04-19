@@ -42,6 +42,9 @@ const handleNodeClick=(nodeData)=>{
   padding: 24px;
   box-sizing: border-box;
   height: 450px;
+  min-height: 450px;
+  max-height: 450px;
+  overflow: hidden;
   border-radius: 28px;
   background:
     radial-gradient(circle at top left, rgba(74, 222, 128, 0.08), transparent 24%),
@@ -57,8 +60,10 @@ const handleNodeClick=(nodeData)=>{
   position: relative;
   flex: 1;
   min-width: 300px;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
-  padding: 18px;
+  padding: 5px;
   border-radius: 24px;
   background:
     linear-gradient(180deg, rgba(26, 30, 45, 0.94) 0%, rgba(15, 18, 29, 0.98) 100%);
@@ -81,6 +86,9 @@ const handleNodeClick=(nodeData)=>{
 .panel-surface > * {
   position: relative;
   z-index: 1;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .tree-section {
@@ -103,9 +111,11 @@ const handleNodeClick=(nodeData)=>{
 }
 
 .section-header {
+  display: flex;
   width: 100%;
   height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .tree-section::after,
