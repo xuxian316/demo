@@ -1,0 +1,31 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.main-container {
+  height: 100vh;
+}
+
+.common-layout .el-container {
+  min-height: 0;
+}
+
+.common-layout .el-header {
+  height: 74px !important;
+  background-color: #ffffff;
+}
+
+.common-layout .el-aside {
+  background-color: #0f121d;
+  padding: 0;
+  overflow: hidden;
+}
+
+.common-layout .el-main {
+  min-height: 0;
+  padding: 0;
+  overflow: auto;
+  background-color: #0b0e14;
+}
