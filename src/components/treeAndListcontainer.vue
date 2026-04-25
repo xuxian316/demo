@@ -12,7 +12,7 @@
 
     <section class="suggestion-section panel-surface">
       <div class="section-header">
-        <suggestion></suggestion>
+        <suggestion :selected-category="selectedNode"></suggestion>
       </div>
     </section>
   </div>

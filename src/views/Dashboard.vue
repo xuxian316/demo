@@ -17,12 +17,14 @@
     </el-row>
 
     <TreeAndListcontainer />
+    <ChinaPharmaProvinceMap />
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import TreeAndListcontainer from '../components/treeAndListcontainer.vue'
+import ChinaPharmaProvinceMap from '../components/ChinaPharmaProvinceMap.vue'
 
 const kpiList = ref([
   { label: '本月新增岗位', value: '127' },
