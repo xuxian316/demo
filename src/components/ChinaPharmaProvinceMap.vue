@@ -5,7 +5,7 @@
         <div class="card-header">
           <div>
             <h2>全国制药公司分布</h2>
-            <p>按省份聚合着色，悬浮可查看省内城市明细。</p>
+            <p>按省份聚合着色，悬浮查看城市明细，点击省份查看公司列表。</p>
           </div>
           <el-tag type="success" effect="plain">
             共 {{ totalCompanies }} 家企业
@@ -18,6 +18,47 @@
       <div v-else-if="!provinceMapData.length" class="state-panel">暂无公司分布数据</div>
       <div v-else ref="chartRef" class="map-chart"></div>
     </el-card>
+
+    <el-drawer
+      v-model="isProvinceDrawerVisible"
+      :title="drawerTitle"
+      size="420px"
+      class="province-drawer"
+    >
+      <div class="drawer-meta" v-if="selectedProvince">
+        <span>{{ selectedProvince }}</span>
+        <span>{{ selectedProvinceCompanies.length }} 家企业</span>
+      </div>
+
+      <div v-if="!selectedProvinceCompanies.length" class="drawer-empty">
+        该省暂无企业明细数据
+      </div>
+
+      <div v-else class="company-list">
+        <article
+          v-for="company in selectedProvinceCompanies"
+          :key="company.id ?? `${company.company_name}-${company.location}`"
+          class="company-item"
+        >
+          <div class="company-logo">
+            <img
+              v-if="company.logoUrl"
+              :src="company.logoUrl"
+              :alt="company.company_name"
+              @error="handleLogoError(company)"
+            />
+            <div v-else class="company-logo-fallback">
+              {{ getCompanyInitial(company.company_name) }}
+            </div>
+          </div>
+
+          <div class="company-copy">
+            <h3>{{ company.company_name || '未命名企业' }}</h3>
+            <p>{{ company.location || '未知地区' }}</p>
+          </div>
+        </article>
+      </div>
+    </el-drawer>
   </section>
 </template>
 
@@ -28,6 +69,7 @@ import { supabase } from '../lib/supabase'
 
 const TABLE_NAME = 'companies'
 const MAP_NAME = 'china'
+const MUNICIPALITIES = new Set(['北京', '上海', '天津', '重庆', '香港', '澳门'])
 
 const chartRef = ref(null)
 const chartInstance = ref(null)
@@ -35,12 +77,14 @@ const loading = ref(false)
 const errorMessage = ref('')
 const rawCompanies = ref([])
 const provinceDetailMap = ref({})
+const selectedProvince = ref('')
+const selectedProvinceCompanies = ref([])
+const isProvinceDrawerVisible = ref(false)
 
 let resizeObserver = null
 let isMapRegistered = false
+let clickHandlerBound = false
 
-// 用“省份 -> 城市列表”的方式维护一份前端精简字典。
-// 这样更容易阅读和维护，后面会自动反转成 “城市 -> 省份” 的映射表。
 const PROVINCE_CITY_GROUPS = {
   '北京市': ['北京'],
   '天津市': ['天津'],
@@ -99,6 +143,10 @@ const visualMapMax = computed(() => {
   return values.length ? Math.max(...values) : 0
 })
 
+const drawerTitle = computed(() => {
+  return selectedProvince.value ? `${selectedProvince}药企列表` : '药企列表'
+})
+
 function normalizeCityName(location) {
   if (typeof location !== 'string') return ''
 
@@ -109,29 +157,43 @@ function normalizeCityName(location) {
 }
 
 function formatCityLabel(cityName) {
-  const municipalities = new Set(['北京', '上海', '天津', '重庆', '香港', '澳门'])
-  if (municipalities.has(cityName)) {
+  if (MUNICIPALITIES.has(cityName)) {
     return cityName
   }
 
   return cityName.endsWith('市') ? cityName : `${cityName}市`
 }
 
+function getCompanyLogoUrl(company) {
+  return (
+    company?.logo_url ||
+    company?.logoUrl ||
+    company?.logo ||
+    company?.company_logo ||
+    company?.companyLogo ||
+    ''
+  )
+}
+
+function mapCompanyRecord(row) {
+  return {
+    ...row,
+    company_name: row?.company_name || row?.name || '未命名企业',
+    logoUrl: getCompanyLogoUrl(row)
+  }
+}
+
 function buildProvinceAggregation(rows) {
   const cityCounter = new Map()
+  const details = {}
 
   rows.forEach((row) => {
     const cityName = normalizeCityName(row?.location)
     if (!cityName) return
 
     cityCounter.set(cityName, (cityCounter.get(cityName) ?? 0) + 1)
-  })
 
-  const details = {}
-
-  cityCounter.forEach((count, cityName) => {
     const provinceName = CITY_TO_PROVINCE_MAP[cityName]
-
     if (!provinceName) {
       console.warn(`[ChinaPharmaProvinceMap] Unmapped city: ${cityName}`)
       return
@@ -140,9 +202,17 @@ function buildProvinceAggregation(rows) {
     if (!details[provinceName]) {
       details[provinceName] = {
         total: 0,
-        cities: []
+        cities: [],
+        companies: []
       }
     }
+
+    details[provinceName].companies.push(mapCompanyRecord(row))
+  })
+
+  cityCounter.forEach((count, cityName) => {
+    const provinceName = CITY_TO_PROVINCE_MAP[cityName]
+    if (!provinceName) return
 
     details[provinceName].total += count
     details[provinceName].cities.push({
@@ -153,6 +223,9 @@ function buildProvinceAggregation(rows) {
 
   Object.values(details).forEach((detail) => {
     detail.cities.sort((a, b) => b.value - a.value)
+    detail.companies.sort((a, b) => {
+      return (a.company_name || '').localeCompare(b.company_name || '', 'zh-CN')
+    })
   })
 
   return details
@@ -162,7 +235,7 @@ async function ensureChinaMapRegistered() {
   if (isMapRegistered) return
 
   // 这里使用本地静态 GeoJSON，而不是依赖远程地图服务。
-  // 好处是部署后更稳定，也更符合“地图资源跟随前端工程一起发布”的场景。
+  // registerMap 必须先于 setOption，否则 ECharts 无法识别 map: 'china'。
   const response = await fetch('/china.json')
 
   if (!response.ok) {
@@ -170,10 +243,6 @@ async function ensureChinaMapRegistered() {
   }
 
   const geoJson = await response.json()
-
-  // registerMap 必须先于 setOption。
-  // ECharts 并不知道 “china” 代表什么边界数据，只有把 GeoJSON 注册成名为 china 的地图后，
-  // 后面的 map: 'china' 才能正常渲染。
   echarts.registerMap(MAP_NAME, geoJson)
   isMapRegistered = true
 }
@@ -254,6 +323,24 @@ function buildChartOption() {
   }
 }
 
+function openProvinceDrawer(provinceName) {
+  const detail = provinceDetailMap.value[provinceName]
+  selectedProvince.value = provinceName
+  selectedProvinceCompanies.value = detail?.companies ?? []
+  isProvinceDrawerVisible.value = true
+}
+
+function bindChartEvents() {
+  if (!chartInstance.value || clickHandlerBound) return
+
+  chartInstance.value.on('click', (params) => {
+    if (!params?.name) return
+    openProvinceDrawer(params.name)
+  })
+
+  clickHandlerBound = true
+}
+
 function renderChart() {
   if (!chartRef.value || !provinceMapData.value.length) return
 
@@ -262,11 +349,21 @@ function renderChart() {
   }
 
   chartInstance.value.setOption(buildChartOption(), true)
+  bindChartEvents()
   chartInstance.value.resize()
 }
 
 function handleResize() {
   chartInstance.value?.resize()
+}
+
+function getCompanyInitial(name) {
+  if (!name) return '药'
+  return String(name).trim().slice(0, 1) || '药'
+}
+
+function handleLogoError(company) {
+  company.logoUrl = ''
 }
 
 async function fetchCompanies() {
@@ -276,7 +373,7 @@ async function fetchCompanies() {
   try {
     const { data, error } = await supabase
       .from(TABLE_NAME)
-      .select('id, location')
+      .select('*')
 
     if (error) throw error
 
@@ -328,6 +425,7 @@ onUnmounted(() => {
   resizeObserver = null
   chartInstance.value?.dispose()
   chartInstance.value = null
+  clickHandlerBound = false
 })
 </script>
 
@@ -390,6 +488,81 @@ onUnmounted(() => {
   border-color: rgba(255, 120, 120, 0.28);
 }
 
+.drawer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  color: #8f9bb3;
+  font-size: 13px;
+}
+
+.drawer-empty {
+  padding: 18px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #8f9bb3;
+}
+
+.company-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.company-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.company-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.16), rgba(56, 178, 172, 0.12));
+  flex-shrink: 0;
+}
+
+.company-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.company-logo-fallback {
+  color: #e9fff2;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.company-copy {
+  min-width: 0;
+}
+
+.company-copy h3 {
+  margin: 0 0 6px;
+  color: #f8fafc;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.company-copy p {
+  margin: 0;
+  color: #8f9bb3;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 :deep(.el-card__header) {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding: 20px 24px;
@@ -403,6 +576,24 @@ onUnmounted(() => {
   color: #d7ffe6;
   background: rgba(74, 222, 128, 0.12);
   border-color: rgba(74, 222, 128, 0.18);
+}
+
+:deep(.province-drawer) {
+  background: #101521;
+}
+
+:deep(.province-drawer .el-drawer) {
+  background: linear-gradient(180deg, rgba(26, 30, 45, 0.98) 0%, rgba(15, 18, 29, 1) 100%);
+}
+
+:deep(.province-drawer .el-drawer__header) {
+  margin-bottom: 0;
+  padding: 20px 20px 8px;
+  color: #f8fafc;
+}
+
+:deep(.province-drawer .el-drawer__body) {
+  padding: 16px 20px 20px;
 }
 
 @media (max-width: 768px) {
