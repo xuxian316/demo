@@ -5,13 +5,27 @@
         <div class="card-header">
           <div>
             <h2>岗位数据</h2>
-            <p>从 Supabase 数据库读取岗位信息，每页展示 20 条记录。</p>
+            <p>从 Supabase 读取岗位明细，每页展示 20 条记录。</p>
           </div>
           <el-tag type="info" effect="plain">
             共 {{ total }} 条
           </el-tag>
         </div>
       </template>
+
+      <el-alert
+        class="decision-alert"
+        title="如果你现在更关心本科起薪、城市性价比和行业风口，可以直接切到专题页。"
+        type="success"
+        :closable="false"
+        show-icon
+      >
+        <template #default>
+          <router-link class="decision-link" to="/demo/graduate-decision">
+            前往“本科生决策”
+          </router-link>
+        </template>
+      </el-alert>
 
       <el-form :inline="true" :model="formState" @submit.prevent="handleSearch">
         <el-form-item label="关键词">
@@ -54,7 +68,7 @@
         stripe
         style="width: 100%"
       >
-        <el-table-column prop="job_title" label="岗位名称" min-width="180" />
+        <el-table-column prop="job_title" label="职位名称" min-width="180" />
         <el-table-column prop="company_name" label="公司名称" min-width="180" show-overflow-tooltip />
         <el-table-column label="薪资" min-width="160">
           <template #default="{ row }">
@@ -191,11 +205,11 @@ async function fetchJobs(page = 1) {
     if (page > maxPage && total.value > 0) {
       await fetchJobs(maxPage)
     }
-  } catch (error) {
+  } catch (fetchError) {
     tableData.value = []
     total.value = 0
-    ElMessage.error(error.message || '加载数据失败，请检查表名和环境变量配置。')
-    console.error('Failed to fetch jobs:', error)
+    ElMessage.error(fetchError.message || '加载数据失败，请检查 Supabase 配置')
+    console.error('Failed to fetch jobs:', fetchError)
   } finally {
     loading.value = false
   }
@@ -245,6 +259,23 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
+.decision-alert {
+  margin-bottom: 20px;
+  border-radius: 14px;
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.decision-link {
+  color: #6cf0ac;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.decision-link:hover {
+  text-decoration: underline;
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -284,7 +315,6 @@ onMounted(() => {
 
 .pagination-wrap {
   display: flex;
-  
   justify-content: flex-end;
   margin-top: 20px;
   padding-top: 18px;
@@ -313,6 +343,11 @@ onMounted(() => {
 :deep(.el-form-item__label) {
   color: #c6d2e3;
   font-weight: 500;
+}
+
+:deep(.el-alert__title),
+:deep(.el-alert__description) {
+  color: #eafff2;
 }
 
 :deep(.el-input__wrapper) {

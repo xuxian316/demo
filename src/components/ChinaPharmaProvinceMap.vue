@@ -365,20 +365,38 @@ function getCompanyInitial(name) {
 function handleLogoError(company) {
   company.logoUrl = ''
 }
-
+//获取数据
 async function fetchCompanies() {
   loading.value = true
   errorMessage.value = ''
 
   try {
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .select('*')
+    const pageSize = 1000
+    let from = 0
+    let hasMore = true
+    const allRows = []
 
-    if (error) throw error
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from('Mapdata')
+        .select('company_name, location')
+        .range(from, from + pageSize - 1)
 
-    rawCompanies.value = Array.isArray(data) ? data : []
+      if (error) throw error
+
+      const currentBatch = Array.isArray(data) ? data : []
+      allRows.push(...currentBatch)
+
+      if (currentBatch.length < pageSize) {
+        hasMore = false
+      } else {
+        from += pageSize
+      }
+    }
+
+    rawCompanies.value = allRows
     provinceDetailMap.value = buildProvinceAggregation(rawCompanies.value)
+    console.log(rawCompanies.value)
   } catch (error) {
     rawCompanies.value = []
     provinceDetailMap.value = {}
@@ -388,6 +406,7 @@ async function fetchCompanies() {
     loading.value = false
   }
 }
+
 
 onMounted(async () => {
   try {
@@ -418,7 +437,7 @@ watch(
   },
   { deep: true }
 )
-
+console.log("provinceMapData.value",provinceMapData.value)
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
   resizeObserver?.disconnect()
